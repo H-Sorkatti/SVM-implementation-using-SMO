@@ -6,25 +6,34 @@ class SVM(object):
     Support Vector Machine implementation using Squential Minimal Optimaization Algorithm.
 
     '''
-    def __init__(self, kernel='linear', C=1, max_iter=200, tol=0.001, sigma=1):
+    def __init__(self, kernel='linear', C=1, max_iter=200, tol=0.001, gamma='scale'):
         self.kernel = kernel
         self.C = C
         self.max_iter = max_iter
         self.tol = tol
-        self.sigma = sigma
+        self.gamma = gamma
         self.b = None
         self.W = None
         self.cache = {'X': None, 'y': None}
 
-    def linearKernel(xi, X) -> np.ndarray:
+    def linearKernel(self, xi, X) -> np.ndarray:
         ''' Linear kernel'''
         return xi @ X.T
 
-    def gaussianKernel(xi, X, sigma=1) -> np.ndarray:
+    def gaussianKernel(self, xi, X, gamma) -> np.ndarray:
         ''' RBF kernel, a measure of similarity.'''
         m, n = X.shape
-        g = lambda z: np.exp(-(np.linalg.norm(z - X, axis=1)**2) / (2 * sigma**2) )
+
+        if (gamma == 'auto') or (gamma == 'scale'):
+            sigma = (1 / n) if gamma=='auto' else 1 / (n * X.var())
+        elif type(gamma) == float:
+            sigma = gamma
+        else:
+            raise ValueError(f"When 'gamma' is a string, it should be either 'scale' or 'auto'. Got '{gamma}' instead")
+
+        g = lambda z, X: np.exp(-(np.linalg.norm(z - X, axis=1)**2) / (2 * sigma**2) )
         sim = np.apply_along_axis(lambda z: g(z, X.reshape(-1,n)), 1, xi.reshape(-1,n))
+
         return sim
 
     def compute_kernel(self, xi, X) -> np.ndarray:
@@ -32,14 +41,15 @@ class SVM(object):
             K = self.linearKernel(xi, X)
             return K
         elif self.kernel == 'rbf':
-            K = self.gaussianKernel(xi, X, self.sigma)
+            K = self.gaussianKernel(xi, X, self.gamma)
             return K
         else:
             raise ValueError(f"Kernel of type '{self.kernel}' is unavailable.")
 
-    def smo(self, X, y, C, tol) -> (np.ndarray, float):
+    def smo(self, X, y, C, tol) -> tuple:
         M, Nx = X.shape
         alpha = np.zeros(Nx)
+        print(alpha.shape)
         b = 0
         passes = 0
         E = np.empty(M)
@@ -47,7 +57,7 @@ class SVM(object):
         while (passes < self.max_iter):
             # num_changed_alphas = 0.
             num_changed_alphas = 0
-            fx = (alpha * y) * K + b
+            fx = (alpha.reshape(-1,1) * y.reshape(-1,1)) * K + b
             # for i = 1, . . . m,
             for i in range(M):
                 # Calculate Ei = f(x(i)) − y(i) using (2).
