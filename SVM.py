@@ -5,15 +5,25 @@ class SVM(object):
     '''
     Support Vector Machine implementation using Squential Minimal Optimaization Algorithm.
 
+    parameters:
+        C: float
+            The regularization parameter. default=1.0
+        kernel: {'rbf', 'linear'}. default='rbf'
+            The kernel to use for the classifier. Current only 'rbf' and 'linear' kernels are available.
+        max_iter: int
+            Maximum number of iteration to run the SMO algorith for. default=1
+        tol: float
+            Tolerance of SMO.
+        gamma: {'scale', 'auto'} or float, default='scale'
+            Kernel coefficient for 'rbf'.
     '''
-    def __init__(self, kernel='linear', C=1, max_iter=200, tol=0.001, gamma='scale'):
-        self.kernel = kernel
+
+    def __init__(self, C=1.0, kernel='rbf', max_iter=1, tol=0.001, gamma='scale'):
         self.C = C
+        self.kernel = kernel
         self.max_iter = max_iter
         self.tol = tol
         self.gamma = gamma
-        self.b = None
-        self.W = None
         self.cache = {'X': None, 'y': None}
 
     def linearKernel(self, xi, X) -> np.ndarray:
@@ -48,96 +58,73 @@ class SVM(object):
 
     def smo(self, X, y, C, tol) -> tuple:
         M, Nx = X.shape
-        alpha = np.zeros(Nx)
-        print(alpha.shape)
+        alpha = np.zeros(M)
         b = 0
         passes = 0
         E = np.empty(M)
         K = self.compute_kernel(xi=X, X=X)
         while (passes < self.max_iter):
-            # num_changed_alphas = 0.
             num_changed_alphas = 0
-            fx = (alpha.reshape(-1,1) * y.reshape(-1,1)) * K + b
-            # for i = 1, . . . m,
+            print('pass', passes, 'K.shape', K.shape)
             for i in range(M):
-                # Calculate Ei = f(x(i)) − y(i) using (2).
+                fx = ((alpha.reshape(-1,1) * y.reshape(-1,1)) * K).sum(axis=1) + b
                 E[i] = fx[i].squeeze() - y[i]
-                # if ((y(i)Ei < −tol && αi < C) || (y(i)Ei > tol && αi > 0))
                 if ( (y[i]*E[i] < -tol  and alpha[i] < C) or (y[i]*E[i] > tol and alpha[i] > 0) ):
-                    # Select j ̸= i randomly.
                     j = np.random.choice(np.delete(np.arange(M), i), 1)
-                    # Calculate Ej = f(x(j)) − y(j) using (2).
                     E[j] = fx[j] - y[j]
-                    # Save old α’s
                     alpha_i_old, alpha_j_old = alpha[i], alpha[j]
-                    # Compute L and H by (10) or (11).
-                    if y[i] == y[j]:
+                    if y[i] != y[j]:
                         L = max(0, alpha[j] - alpha[i])
                         H = min(C, C + alpha[j] - alpha[i])
                     else:
                         L = max(0, alpha[i] + alpha[j] - C)
                         H = min(C, alpha[i] + alpha[j])
-                    # if (L == H)
-                    # continue to next i.
                     if L == H:
                         continue
-                    # Compute η by (14).
                     nu = 2 * K[i,j] - K[i,i] - K[j,j]
-                    # if (η >= 0)
-                    # continue to next i.
                     if nu >= 0:
                         continue
-                    # Compute and clip new value for αj using (12) and (15).
                     alpha[j] = alpha[j] - (y[j] * (E[i] - E[j]) / nu)
                     alpha[j] = np.clip(a=alpha[j], a_min=L, a_max=H)
-                    # if (|αj − α(old)_j| < 10^−5)
-                    # continue to next i.
                     if np.abs(alpha[j] - alpha_j_old) < 1e-5:
                         continue
-                    # Determine value for αi using (16).
                     alpha[i] = alpha[i] + (y[i] * y[j] * (alpha_j_old - alpha[j]))
-                    # Compute b1 and b2 using (17) and (18) respectively.
                     b1 = b - E[i] - (y[i] * (alpha[i] - alpha_i_old) * K[i,i]) - (y[j] * (alpha[j] - alpha_j_old) * K[i,j])
                     b2 = b - E[j] - (y[i] * (alpha[i] - alpha_i_old) * K[i,j]) - (y[j] * (alpha[j] - alpha_j_old) * K[j,j])
-                    # Compute b by (19).
                     if (alpha[i] > 0) and (alpha[i] < C):
                         b = b1
                     elif (alpha[j] > 0) and (alpha[j] < C):
                         b = b2
                     else:
                         b = (b1 + b2)/2
-                    # num changed alphas := num changed alphas + 1.
                     num_changed_alphas += 1
                 # end if
             # end for
-            # if (num changed alphas == 0)
             if num_changed_alphas == 0:
-                # passes := passes + 1
                 passes += 1
-            # else
             else:
-                # passes := 0
                 passes = 0
         # end while
         return alpha, b
 
-    def binary_classification(self, X, y):
+    def binary_classification(self, X, y) -> None:
         self.alpha, self.b = self.smo(X, y, self.C, self.tol)
 
-    def fit(self, X, y):
+    def fit(self, X, y) -> None:
         self.cache['X'] = X
         self.cache['y'] = y
         self.classes_ = np.unique(y)
         self.num_classes = len(self.classes_)
         if self.num_classes == 2:
-            y[y == 0] = -1
-            self.binary_classification(X, y)
+            y_ = y.copy()
+            y_[y_ == 0] = -1
+            self.binary_classification(X, y_)
         else:
             raise AttributeError('Number of classes cannot be more than 2.')
 
         self.fit_status_ = 1
 
-    def decision_function(self, X):
+    def decision_function(self, X) -> np.ndarray :
         assert self.fit_status_, "NotFittedError: This SVM instance is not fitted yet. Call 'fit' with appropriate arguments before using this estimator."
 
         K = self.compute_kernel(X, self.cache['X']).reshape(X.shape[0], -1)
@@ -146,11 +133,14 @@ class SVM(object):
 
         return margin
 
-    def predict(self, X):
+    def predict(self, X) -> np.ndarray:
         assert self.fit_status_, "NotFittedError: This SVM instance is not fitted yet. Call 'fit' with appropriate arguments before using this estimator."
 
-        y_pred = self.decision_function(X)
-        y_pred[y_pred >= 0] = 1
+        tmp = self.decision_function(X)
+        y_pred = tmp.copy()
+        y_pred[tmp > 0] = 1
+        y_pred[tmp <= 0] = 0
+        del(tmp)
 
         return y_pred
 
